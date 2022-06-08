@@ -1,4 +1,5 @@
 ﻿using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Linq;
@@ -7,6 +8,10 @@ namespace Saxcel
 {
     internal class CellRangeStrategy : XlsxReaderStrategy
     {
+        public CellRangeStrategy(WorkbookPart workbookPart, WorksheetPart worksheetPart, XlsxReaderConfiguration configuration) : 
+            base(workbookPart, worksheetPart, configuration)
+        { }
+
         public override void Execute()
         {
             // Instantiate the OpenXmlReader for reading the worksheet data
@@ -76,10 +81,10 @@ namespace Saxcel
                         HasNewValue = true;
 
                         // Pause reading
-                        ReadingPaused = true;
+                        OnPause = true;
 
                         // Pause here until pause flag is set to false
-                        while (ReadingPaused) { };
+                        while (OnPause) { };
 
                     } while (Reader.ReadNextSibling());
                 }

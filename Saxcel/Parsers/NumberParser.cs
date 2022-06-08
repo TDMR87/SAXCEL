@@ -8,8 +8,15 @@ namespace Saxcel
 {
     public class NumberParser : IParser<decimal>
     {
-        public string Formatting { get; set; }
-
+        /// <summary>
+        /// Checks that the cell value is number format and returns a ValueTuple<decimal, string>
+        /// that contains the value itself (decimal type) and the formatting for displaying that
+        /// value. 
+        /// </summary>
+        /// <param name="cell"></param>
+        /// <param name="cellFormat"></param>
+        /// <param name="result"></param>
+        /// <returns></returns>
         public bool TryGetValueAndFormat(Cell cell, CellFormat cellFormat, out (decimal value, string formatting) result)
         {
             if ((cell.DataType != null && cell.DataType == CellValues.Number) || (cellFormat != null && Formats.ContainsKey(cellFormat.NumberFormatId.AsInt())))
@@ -53,6 +60,10 @@ namespace Saxcel
             [11] = "0.00E+00"
         };
 
+        /// <summary>
+        /// Adds a number format to the collection of formats.
+        /// </summary>
+        /// <param name="customFormat"></param>
         public void AddFormat((int key, string value) customFormat)
         {
             if (customFormat.value.Contains(";"))

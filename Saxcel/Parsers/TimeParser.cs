@@ -10,7 +10,7 @@ namespace Saxcel
     {
         /// <summary>
         /// Checks that the cell value is time format and returns a ValueTuple<DateTime, string>
-        /// that contains the value and formatting. 
+        /// that contains the value (DateTime type) and formatting. 
         /// </summary>
         /// <param name="cellValue"></param>
         /// <param name="cellFormat"></param>
@@ -20,14 +20,12 @@ namespace Saxcel
         {
             if (cellFormat != null && Formats.ContainsKey(cellFormat.NumberFormatId.AsInt()))
             {
-                // Parse the value to a double, because in xlsx-files dates are stored
-                // as the amount of days since 1.1.1900 
+                // Parse the value to a double, because in .xlsx files dates are stored as a number of days since 1.1.1900
                 if (double.TryParse(cell.CellValue.InnerText, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var dateDouble))
                 {
                     // Set and return result
                     result.value = DateTime.FromOADate(dateDouble);
                     result.formatting = Formats[cellFormat.NumberFormatId.AsInt()];
-
                     return true;
                 }
             }
@@ -47,6 +45,10 @@ namespace Saxcel
              */
         };
 
+        /// <summary>
+        /// Adds a format to the collection of formats.
+        /// </summary>
+        /// <param name="customFormat"></param>
         public void AddFormat((int key, string value) customFormat)
         {
             // If formatting is for "time"

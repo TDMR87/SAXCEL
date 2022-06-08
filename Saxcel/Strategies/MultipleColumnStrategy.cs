@@ -1,4 +1,5 @@
 ﻿using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Linq;
@@ -7,6 +8,10 @@ namespace Saxcel
 {
     internal class MultipleColumnStrategy : XlsxReaderStrategy
     {
+        public MultipleColumnStrategy(WorkbookPart workbookPart, WorksheetPart worksheetPart, XlsxReaderConfiguration configuration) : 
+            base(workbookPart, worksheetPart, configuration)
+        { }
+
         public override void Execute()
         {
             // Open the file using a strategy
@@ -66,10 +71,10 @@ namespace Saxcel
                             HasNewValue = true;
 
                             // Pause reading
-                            ReadingPaused = true;
+                            OnPause = true;
 
                             // Pause here until pause flag is set to false
-                            while (ReadingPaused) { };
+                            while (OnPause) { };
 
                             // Set flag to false after pausing and continue reading the next cell
                             HasNewValue = false;

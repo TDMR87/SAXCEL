@@ -1,15 +1,22 @@
 ﻿using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Linq;
 
 namespace Saxcel
 {
+    /// <summary>
+    /// This strategy reads the values of one single column.
+    /// </summary>
     internal class SingleColumnStrategy : XlsxReaderStrategy
     {
+        public SingleColumnStrategy(WorkbookPart workbookPart, WorksheetPart worksheetPart, XlsxReaderConfiguration configuration) : 
+            base(workbookPart, worksheetPart, configuration) { }
+
         public override void Execute()
         {
-            // Open the file using a strategy
+            // Open the file
             using (Reader = OpenXmlReader.Create(WorksheetPart))
             {
                 // Read element by element
@@ -66,13 +73,14 @@ namespace Saxcel
                             HasNewValue = true;
 
                             // Pause reading
-                            ReadingPaused = true;
+                            OnPause = true;
 
-                            // Pause here until pause flag is set to false
-                            while (ReadingPaused) { };
+                            // Pause here until the pause flag is set to false
+                            while (OnPause) { };
 
                             // Set flag to false after pausing and continue reading the next cell
                             HasNewValue = false;
+                            
 
                         } while (Reader.ReadNextSibling());
                     }
