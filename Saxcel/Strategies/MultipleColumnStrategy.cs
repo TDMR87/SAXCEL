@@ -3,86 +3,89 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Saxcel
 {
     internal class MultipleColumnStrategy : XlsxReaderStrategy
     {
-        public MultipleColumnStrategy(WorkbookPart workbookPart, WorksheetPart worksheetPart, XlsxReaderConfiguration configuration) : 
-            base(workbookPart, worksheetPart, configuration)
+        public MultipleColumnStrategy(XlsxReader reader) : base(reader)
         { }
 
-        public override void Execute()
+        public override async Task BeginRead()
         {
-            // Open the file using a strategy
-            using (Reader = OpenXmlReader.Create(WorksheetPart))
+            await Task.Run(() =>
             {
-                // Read element by element
-                while (Reader.Read())
+                // Open the file using a strategy
+                using (Reader = OpenXmlReader.Create(worksheetPart))
                 {
-                    // Skip other than Row elements
-                    if (Reader.ElementType == typeof(Row))
+                    // Read element by element
+                    while (Reader.Read())
                     {
-                        // Set current row
-                        CurrentRow = int.Parse(Reader.Attributes.First(attr => attr.LocalName == "r").Value);
-
-                        // Read a Row element
-                        Reader.ReadFirstChild();
-
-                        do // Read all siblings of the Row (e.g. cells)
+                        // Skip other than Row elements
+                        if (Reader.ElementType == typeof(Row))
                         {
-                            // Skip if the element is not a cell
-                            if (Reader.ElementType != typeof(Cell)) continue;
+                            // Set current row
+                            CurrentRow = int.Parse(Reader.Attributes.First(attr => attr.LocalName == "r").Value);
 
-                            // Load the cell element
-                            _cell = (Cell)Reader.LoadCurrentElement();
+                            // Read a Row element
+                            Reader.ReadFirstChild();
 
-                            // Skip if cell is not in the specified column
-                            if (!_cell.GetColumnName().Equals(StartColumn, StringComparison.OrdinalIgnoreCase)) continue;
-
-                            // Set current column
-                            CurrentColumn = _cell.GetColumnName();
-
-                            // Get cell format
-                            WorkbookPart.TryGetCellFormat(_cell, out _cellFormat);
-
-                            if (StringParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<string, string> stringResult))
+                            do // Read all siblings of the Row (e.g. cells)
                             {
-                                (string text, string format) = stringResult;
-                                CurrentValue = text;
-                            }
-                            else if (TimeParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<DateTime, string> timeResult))
-                            {
-                                (DateTime time, string format) = timeResult;
-                                CurrentValue = time.ToString(format);
-                            }
-                            else if (DateParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<DateTime, string> dateResult))
-                            {
-                                (DateTime date, string format) = dateResult;
-                                CurrentValue = date.ToString(format);
-                            }
-                            else if (NumberParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<decimal, string> numberResult))
-                            {
-                                (decimal number, string format) = numberResult;
-                                CurrentValue = number.ToString(format);
-                            }
+                                // Skip if the element is not a cell
+                                if (Reader.ElementType != typeof(Cell)) continue;
 
-                            // Set a flag that indicates we have read a new value
-                            HasNewValue = true;
+                                // Load the cell element
+                                cell = (Cell)Reader.LoadCurrentElement();
 
-                            // Pause reading
-                            OnPause = true;
+                                // Skip if cell is not in the specified column
+                                if (!cell.GetColumnName().Equals(StartColumn, StringComparison.OrdinalIgnoreCase)) continue;
 
-                            // Pause here until pause flag is set to false
-                            while (OnPause) { };
+                                // Set current column
+                                CurrentColumn = cell.GetColumnName();
 
-                            // Set flag to false after pausing and continue reading the next cell
-                            HasNewValue = false;
+                                // Get cell format
+                                workbookPart.TryGetCellFormat(cell, out cellFormat);
 
-                        } while (Reader.ReadNextSibling());
+                                if (StringParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<string, string> stringResult))
+                                {
+                                    (string text, string format) = stringResult;
+                                    CurrentValue = text;
+                                }
+                                else if (TimeParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<DateTime, string> timeResult))
+                                {
+                                    (DateTime time, string format) = timeResult;
+                                    CurrentValue = time.ToString(format);
+                                }
+                                else if (DateParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<DateTime, string> dateResult))
+                                {
+                                    (DateTime date, string format) = dateResult;
+                                    CurrentValue = date.ToString(format);
+                                }
+                                else if (NumberParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<decimal, string> numberResult))
+                                {
+                                    (decimal number, string format) = numberResult;
+                                    CurrentValue = number.ToString(format);
+                                }
+
+                                // Set a flag that indicates we have read a new value
+                                HasNewValue = true;
+
+                                // Pause reading
+                                AllowedToContinue = true;
+
+                                // Pause here until pause flag is set to false
+                                while (AllowedToContinue) { };
+
+                                // Set flag to false after pausing and continue reading the next cell
+                                HasNewValue = false;
+
+                            } while (Reader.ReadNextSibling());
+                        }
                     }
                 }
-            }
+            });
 
             // Force garbage collection
             GC.Collect();
@@ -94,7 +97,7 @@ namespace Saxcel
                 StartColumn = StartColumn.GetNextColumn();
 
                 // Read the column
-                Execute();
+                BeginRead();
             }
             else
             {

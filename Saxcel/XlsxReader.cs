@@ -4,26 +4,25 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Saxcel
 {
     /// <summary>
-    /// The XlsxReader class is responsible for iterating through the cells
-    /// in a .xlsx file and yielding the value of each cell.
-    /// 
-    /// 
+    /// The XlsxReader class opens a .xslx file for reading and 
+    /// iterates through the cells yielding the value of each cell.
     /// </summary>
     public class XlsxReader : IDisposable
     {
-        readonly SpreadsheetDocument _spreadsheetDocument;
-        readonly XlsxReaderConfiguration _configuration;
-        readonly WorksheetPart _workSheetPart;
-        readonly WorkbookPart _workbookPart;
-        readonly Sheet _sheet;
+        internal readonly SpreadsheetDocument spreadsheetDocument;
+        internal readonly XlsxReaderConfiguration configuration;
+        internal readonly WorksheetPart workSheetPart;
+        internal readonly WorkbookPart workbookPart;
+        internal readonly Sheet sheet;
 
-        XlsxReaderStrategy _readerStrategy;
-        bool _readStarted;
+        private XlsxReaderStrategy _readingStrategy;
+        private bool _readingStarted;
 
         /// <summary>
         /// Returns the column the reader is currently on.
@@ -49,15 +48,15 @@ namespace Saxcel
                 throw new InvalidOperationException("Invalid file extension.");
 
             // Open the workbook and the sheet
-            _spreadsheetDocument = SpreadsheetDocument.Open(filepath, isEditable: false);
-            _workbookPart = _spreadsheetDocument.WorkbookPart;
-            _sheet = _workbookPart.Workbook.Descendants<Sheet>().Where(s => s.Name.Equals(sheetname)).FirstOrDefault();
+            spreadsheetDocument = SpreadsheetDocument.Open(filepath, isEditable: false);
+            workbookPart = spreadsheetDocument.WorkbookPart;
+            sheet = workbookPart.Workbook.Descendants<Sheet>().Where(s => s.Name.Equals(sheetname)).FirstOrDefault();
 
             // If sheet not found
-            if (_sheet == null) throw new ArgumentException($"Sheet '{sheetname}' does not exist in the workbook.", nameof(sheetname));
+            if (sheet == null) throw new ArgumentException($"Sheet '{sheetname}' does not exist in the workbook.", nameof(sheetname));
 
             // Load the worksheet part object (which contains the actual sheet data)
-            _workSheetPart = (WorksheetPart)(_workbookPart.GetPartById(_sheet.Id));
+            workSheetPart = (WorksheetPart)(workbookPart.GetPartById(sheet.Id));
         }
 
         /// <summary>
@@ -68,11 +67,11 @@ namespace Saxcel
         /// <param name="configure"></param>
         public XlsxReader(string filepath, string sheetname, Action<XlsxReaderConfiguration> configure) : this(filepath, sheetname)
         {
-            configure.Invoke(_configuration);
+            configure.Invoke(configuration);
         }
 
         /// <summary>
-        /// While true, yields the cell values from the specified column.
+        /// While true, yields the cell values one by one from the specified column.
         /// </summary>
         /// <param name="column"></param>
         /// <param name="cellValue"></param>
@@ -85,34 +84,25 @@ namespace Saxcel
             }
 
             // If reader has not yet been started, start it.
-            if (!_readStarted)
+            if (_readingStrategy == null)
             {
-                _readerStrategy = new SingleColumnStrategy(_workbookPart, _workSheetPart, _configuration) 
-                { 
-                    StartColumn = column, 
-                    EndColumn = column
-                };
-
-                Task.Run(() => _readerStrategy.Execute());
-
-                _readStarted = true;
+                _readingStrategy = new SingleColumnStrategy(this) { StartColumn = column, EndColumn = column };
+                _ = _readingStrategy.BeginRead();
             }
 
-            // Unpause the strategy and wait for results
-            _readerStrategy.OnPause = false;
+            _readingStrategy.AllowedToContinue = true;
 
-            // While the reader is fetching the next cell value
-            while (!_readerStrategy.EndOfFileReached && !_readerStrategy.HasNewValue)
-            { } // Wait here
+            // Wait while the reader is fetching the next value
+            while (_readingStrategy.AllowedToContinue) { }
 
             // Set the cell value, current column and the current row
-            cellValue = _readerStrategy.CurrentValue;
-            CurrentColumn = _readerStrategy.CurrentColumn;
-            CurrentRow = _readerStrategy.CurrentRow;
+            cellValue = _readingStrategy.CurrentValue;
+            CurrentColumn = _readingStrategy.CurrentColumn;
+            CurrentRow = _readingStrategy.CurrentRow;
 
             // Return false if end of the file has been reached,
             // return true if there are still values left to be read
-            return _readerStrategy.EndOfFileReached ? false : true;
+            return _readingStrategy.EndOfFileReached ? false : true;
         }
 
         /// <summary>
@@ -131,36 +121,24 @@ namespace Saxcel
             }
 
             // If reader has not yet been started, start it
-            if (!_readStarted)
+            if (_readingStrategy == null)
             {
-                _readerStrategy = new MultipleColumnStrategy(_workbookPart, _workSheetPart, _configuration) 
-                { 
-                    StartColumn = fromColumn, 
-                    EndColumn = toColumn 
-                };
-
-                Task.Run(() => _readerStrategy.Execute());
-
-                _readStarted = true;
+                _readingStrategy = new MultipleColumnStrategy(this) { StartColumn = fromColumn, EndColumn = toColumn };
+                _ = _readingStrategy.BeginRead();
             }
 
-            _readerStrategy.HasNewValue = false;
-            _readerStrategy.OnPause = false;
+            _readingStrategy.AllowedToContinue = true;
 
-            // While the reader is fetching the next cell value
-            while (!_readerStrategy.EndOfFileReached &&
-                   !_readerStrategy.HasNewValue &&
-                   !_readerStrategy.OnPause)
-            { } // Wait here
+            while (_readingStrategy.AllowedToContinue){}
 
             // Set the current cell value, current column and current row
-            cellValue = _readerStrategy.CurrentValue;
-            CurrentColumn = _readerStrategy.CurrentColumn;
-            CurrentRow = _readerStrategy.CurrentRow;
+            cellValue = _readingStrategy.CurrentValue;
+            CurrentColumn = _readingStrategy.CurrentColumn;
+            CurrentRow = _readingStrategy.CurrentRow;
 
             // Return false if end of the file has been reached,
             // return true if there are still values left to be read
-            return _readerStrategy.EndOfFileReached ? false : true;
+            return _readingStrategy.EndOfFileReached ? false : true;
         }
 
         /// <summary>
@@ -179,9 +157,9 @@ namespace Saxcel
             var endColumnLastRowNum = int.Parse(toCell.SplitAlphabetsAndNumbers().Last());
 
             // If reader has not yet been started
-            if (!_readStarted)
+            if (_readingStrategy == null)
             {
-                _readerStrategy = new CellRangeStrategy(_workbookPart, _workSheetPart, _configuration) 
+                _readingStrategy = new CellRangeStrategy(this) 
                 { 
                     StartColumn = startColumn, 
                     EndColumn = endColumn, 
@@ -189,28 +167,22 @@ namespace Saxcel
                     MaximumRow = endColumnLastRowNum 
                 };
 
-                Task.Run(() => _readerStrategy.Execute());
-
-                _readStarted = true;
+                _ = _readingStrategy.BeginRead();
             }
 
-            _readerStrategy.HasNewValue = false;
-            _readerStrategy.OnPause = false;
+            _readingStrategy.AllowedToContinue = true;
 
-            // While the reader is fetching the next cell value
-            while (!_readerStrategy.EndOfFileReached &&
-                   !_readerStrategy.HasNewValue &&
-                   !_readerStrategy.OnPause)
-            { } // Wait here
+            // Wait while the reader is fetching the next value
+            while (_readingStrategy.AllowedToContinue) { }
 
             // Set the current cell value, current column and current row
-            cellValue = _readerStrategy.CurrentValue;
-            CurrentColumn = _readerStrategy.CurrentColumn;
-            CurrentRow = _readerStrategy.CurrentRow;
+            cellValue = _readingStrategy.CurrentValue;
+            CurrentColumn = _readingStrategy.CurrentColumn;
+            CurrentRow = _readingStrategy.CurrentRow;
 
             // Return false if end of the file has been reached,
             // return true if there are still values left to be read
-            return _readerStrategy.EndOfFileReached ? false : true;
+            return _readingStrategy.EndOfFileReached ? false : true;
         }
 
         /// <summary>
@@ -218,7 +190,7 @@ namespace Saxcel
         /// </summary>
         public void Dispose()
         {
-            _spreadsheetDocument.Dispose();
+            spreadsheetDocument.Dispose();
         }
     }
 }

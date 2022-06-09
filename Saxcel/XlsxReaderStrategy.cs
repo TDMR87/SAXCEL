@@ -2,6 +2,7 @@
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
+using System.Threading.Tasks;
 
 namespace Saxcel
 {
@@ -10,22 +11,27 @@ namespace Saxcel
     /// </summary>
     internal abstract class XlsxReaderStrategy
     {
-        protected CellFormat _cellFormat;
-        protected Cell _cell;
-        protected string _currentColumn;
-        protected XlsxReaderConfiguration _configuration;
+        protected XlsxReaderConfiguration readerConfiguration;
+        protected WorkbookPart workbookPart;
+        protected WorksheetPart worksheetPart;
+        protected CellFormat cellFormat;
+        protected Cell cell;
+        protected string currentColumn;
 
-        public XlsxReaderStrategy(WorkbookPart workbookPart, WorksheetPart worksheetPart, XlsxReaderConfiguration configuration)
+        public XlsxReaderStrategy(XlsxReader reader)
         {
-            WorkbookPart = workbookPart;
-            WorksheetPart = worksheetPart;
-            _configuration = configuration;
+            workbookPart = reader.workbookPart;
+            worksheetPart = reader.workSheetPart;
+            readerConfiguration = reader.configuration;
+
+            DateParser = reader.configuration?.DateParser ?? new DateParser();
+            TimeParser = reader.configuration?.TimeParser ?? new TimeParser();
+            NumberParser = reader.configuration?.NumberParser ?? new NumberParser();
+            StringParser = reader.configuration?.StringParser ?? new StringParser();
 
             Initialize();
         }
-
-        protected WorkbookPart WorkbookPart { get; set; }
-        protected WorksheetPart WorksheetPart { get; set; }
+        
         public OpenXmlReader Reader { get; set; }
         public IStringParser StringParser { get; set; }
         public IParser<decimal> NumberParser { get; set; }
@@ -40,23 +46,24 @@ namespace Saxcel
         public string CurrentColumn { get; protected set; }
         public bool EndOfFileReached { get; set; }
         public bool HasNewValue { get; set; }
-        public bool OnPause { get; set; }
+        public bool AllowedToContinue { get; set; }
+
+        public Func<bool> OnNewValueAvailable { get; set; }
 
         /// <summary>
-        /// Executes the strategy.
+        /// Begins reading a file using this strategy.
         /// </summary>
-        public abstract void Execute();
+        public abstract Task BeginRead();
 
+        /// <summary>
+        /// Initializes the strategy with either the default parsers or some user defined parsers.
+        /// the some 
+        /// </summary>
         private void Initialize()
         {
-            DateParser = _configuration?.DateParser ?? new DateParser();
-            TimeParser = _configuration?.TimeParser ?? new TimeParser();
-            NumberParser = _configuration?.NumberParser ?? new NumberParser();
-            StringParser = _configuration?.StringParser ?? new StringParser();
-
-            // Load the xlsx file's Shared String Table into the reading strategy's string parser
+            // Load the workbook's Shared String Table into the string parser
             int index = 0;
-            foreach (SharedStringItem ssItem in WorkbookPart.SharedStringTablePart.SharedStringTable.Elements<SharedStringItem>())
+            foreach (SharedStringItem ssItem in workbookPart.SharedStringTablePart.SharedStringTable.Elements<SharedStringItem>())
             {
                 StringParser.SharedStringTable.Add(index, ssItem.InnerText);
                 index++;
@@ -64,7 +71,7 @@ namespace Saxcel
 
             // Get all the custom cell formattings in the loaded xlsx file (dates, times, numbers etc)
             // and adds them to the corresponding parsers.
-            foreach (var (formatId, formatCode) in WorkbookPart.GetCustomCellFormattings())
+            foreach (var (formatId, formatCode) in workbookPart.GetCustomCellFormattings())
             {
                 if (formatCode.Equals("GENERAL"))
                     StringParser.AddFormat((formatId, formatCode));

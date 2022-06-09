@@ -3,103 +3,106 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Saxcel
 {
     internal class CellRangeStrategy : XlsxReaderStrategy
     {
-        public CellRangeStrategy(WorkbookPart workbookPart, WorksheetPart worksheetPart, XlsxReaderConfiguration configuration) : 
-            base(workbookPart, worksheetPart, configuration)
+        public CellRangeStrategy(XlsxReader reader) : base(reader)
         { }
 
-        public override void Execute()
+        public override async Task BeginRead()
         {
-            // Instantiate the OpenXmlReader for reading the worksheet data
-            using (Reader = OpenXmlReader.Create(WorksheetPart))
+            await Task.Run(() =>
             {
-                // Read the xlsx file from beginning to the end
-                while (Reader.Read())
+                // Instantiate the OpenXmlReader for reading the worksheet data
+                using (Reader = OpenXmlReader.Create(worksheetPart))
                 {
-                    // Skip other than Row elements
-                    if (Reader.ElementType != typeof(Row)) continue;
-
-                    // Set current row
-                    CurrentRow = int.Parse(Reader.Attributes.First(attr => attr.LocalName == "r").Value);
-
-                    // If we reached the end of the range
-                    if (StartColumn == EndColumn && CurrentRow > MaximumRow)
+                    // Read the xlsx file from beginning to the end
+                    while (Reader.Read())
                     {
-                        // Stop reading
-                        break;
-                    }
+                        // Skip other than Row elements
+                        if (Reader.ElementType != typeof(Row)) continue;
 
-                    // Read a Row element
-                    Reader.ReadFirstChild();
+                        // Set current row
+                        CurrentRow = int.Parse(Reader.Attributes.First(attr => attr.LocalName == "r").Value);
 
-                    do // Read all siblings of the Row (e.g. cells)
-                    {
-                        // Skip if the element is not a cell
-                        if (Reader.ElementType != typeof(Cell)) continue;
+                        // If we reached the end of the range
+                        if (StartColumn == EndColumn && CurrentRow > MaximumRow)
+                        {
+                            // Stop reading
+                            break;
+                        }
 
-                        // Load the cell element
-                        _cell = (Cell)Reader.LoadCurrentElement();
+                        // Read a Row element
+                        Reader.ReadFirstChild();
 
-                        _currentColumn = _cell.GetColumnName();
+                        do // Read all siblings of the Row (e.g. cells)
+                        {
+                            // Skip if the element is not a cell
+                            if (Reader.ElementType != typeof(Cell)) continue;
 
-                        if (!_currentColumn.Equals(StartColumn, StringComparison.OrdinalIgnoreCase) || 
-                            !_cell.IsInRange(CellRange)) 
+                            // Load the cell element
+                            cell = (Cell)Reader.LoadCurrentElement();
+
+                            currentColumn = cell.GetColumnName();
+
+                            if (!currentColumn.Equals(StartColumn, StringComparison.OrdinalIgnoreCase) ||
+                                !cell.IsInRange(CellRange))
                                 continue;
 
-                        // Set the public column
-                        CurrentColumn = _currentColumn;
+                            // Set the public column
+                            CurrentColumn = currentColumn;
 
-                        // Get cell format for the current cell
-                        WorkbookPart.TryGetCellFormat(_cell, out _cellFormat);
+                            // Get cell format for the current cell
+                            workbookPart.TryGetCellFormat(cell, out cellFormat);
 
-                        if (StringParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<string, string> stringResult))
-                        {
-                            (string text, string format) = stringResult;
-                            CurrentValue = text;
-                        }
-                        else if (TimeParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<DateTime, string> timeResult))
-                        {
-                            (DateTime time, string format) = timeResult;
-                            CurrentValue = time.ToString(format);
-                        }
-                        else if (DateParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<DateTime, string> dateResult))
-                        {
-                            (DateTime date, string format) = dateResult;
-                            CurrentValue = date.ToString(format);
-                        }
-                        else if (NumberParser.TryGetValueAndFormat(_cell, _cellFormat, out ValueTuple<decimal, string> numberResult))
-                        {
-                            (decimal number, string format) = numberResult;
-                            CurrentValue = number.ToString(format);
-                        }
+                            if (StringParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<string, string> stringResult))
+                            {
+                                (string text, string format) = stringResult;
+                                CurrentValue = text;
+                            }
+                            else if (TimeParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<DateTime, string> timeResult))
+                            {
+                                (DateTime time, string format) = timeResult;
+                                CurrentValue = time.ToString(format);
+                            }
+                            else if (DateParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<DateTime, string> dateResult))
+                            {
+                                (DateTime date, string format) = dateResult;
+                                CurrentValue = date.ToString(format);
+                            }
+                            else if (NumberParser.TryGetValueAndFormat(cell, cellFormat, out ValueTuple<decimal, string> numberResult))
+                            {
+                                (decimal number, string format) = numberResult;
+                                CurrentValue = number.ToString(format);
+                            }
 
-                        // Set a flag that indicates we have read a new value
-                        HasNewValue = true;
+                            // Set a flag that indicates we have read a new value
+                            HasNewValue = true;
 
-                        // Pause reading
-                        OnPause = true;
+                            // Pause reading
+                            AllowedToContinue = true;
 
-                        // Pause here until pause flag is set to false
-                        while (OnPause) { };
+                            // Pause here until pause flag is set to false
+                            while (AllowedToContinue) { };
 
-                    } while (Reader.ReadNextSibling());
+                        } while (Reader.ReadNextSibling());
+                    }
                 }
-            }
+            });
 
             // End of column reached. Should we read the next column?
             if (!StartColumn.Equals(EndColumn, StringComparison.OrdinalIgnoreCase))
             {
-                // Get the next column to be read
+                // Set the next column to be read
                 StartColumn = StartColumn.GetNextColumn();
 
                 // Read the column
                 if (!EndOfFileReached)
                 {
-                    Execute();
+                    BeginRead();
                 }
             }
             else
